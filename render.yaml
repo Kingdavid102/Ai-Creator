@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: henz-ai-creator
+    env: php
+    plan: free
+    buildCommand: |
+      # Create necessary directories
+      mkdir -p ais
+      mkdir -p logs
+      chmod -R 777 ais
+      chmod -R 777 logs
+      
+      # Create database files
+      touch ai_database.json
+      touch ai_logs.txt
+      chmod 666 ai_database.json
+      chmod 666 ai_logs.txt
+      
+    startCommand: php -S 0.0.0.0:$PORT
+    
+    envVars:
+      - key: PORT
+        value: "10000"
