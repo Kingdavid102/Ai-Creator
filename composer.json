@@ -1,0 +1,7 @@
+{
+    "name": "henz/ai-creator",
+    "description": "Henz AI Creator Application",
+    "require": {
+        "php": ">=7.4"
+    }
+}
