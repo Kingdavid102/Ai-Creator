@@ -1,0 +1,187 @@
+<?php
+// create_ai.php - JSON Version (No Database Required) - KSWEB Compatible
+header('Content-Type: application/json');
+header('Access-Control-Allow-Origin: *');
+header('Access-Control-Allow-Methods: POST');
+header('Access-Control-Allow-Headers: Content-Type');
+
+// Enable error reporting for debugging
+ini_set('display_errors', 1);
+ini_set('log_errors', 1);
+error_reporting(E_ALL);
+
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    http_response_code(405);
+    echo json_encode(['success' => false, 'error' => 'Invalid request method']);
+    exit;
+}
+
+// Get input data
+$rawInput = file_get_contents('php://input');
+$input = json_decode($rawInput, true);
+
+// Debug: Log the raw input
+error_log("Raw input: " . $rawInput);
+error_log("Decoded input: " . print_r($input, true));
+
+if (!$input) {
+    http_response_code(400);
+    echo json_encode(['success' => false, 'error' => 'Invalid JSON data. Raw input: ' . substr($rawInput, 0, 100)]);
+    exit;
+}
+
+// Validate required fields
+$required_fields = ['aiName', 'developerName', 'country', 'backgroundColor', 'textColor', 'personality'];
+foreach ($required_fields as $field) {
+    if (empty($input[$field])) {
+        http_response_code(400);
+        echo json_encode(['success' => false, 'error' => "Missing required field: $field"]);
+        exit;
+    }
+}
+
+// Sanitize inputs
+$aiName = htmlspecialchars(trim($input['aiName']));
+$developerName = htmlspecialchars(trim($input['developerName']));
+$country = htmlspecialchars(trim($input['country']));
+$backgroundColor = $input['backgroundColor'];
+$textColor = $input['textColor'];
+$personality = $input['personality'];
+$greeting = isset($input['greeting']) && !empty(trim($input['greeting'])) 
+    ? htmlspecialchars(trim($input['greeting'])) 
+    : "Hi! I'm $aiName, your AI assistant. How can I help you today?";
+
+// Validate inputs
+if (strlen($aiName) > 50) {
+    echo json_encode(['success' => false, 'error' => 'AI name is too long. Maximum 50 characters allowed.']);
+    exit;
+}
+
+if (strlen($greeting) > 500) {
+    echo json_encode(['success' => false, 'error' => 'Greeting message is too long. Maximum 500 characters allowed.']);
+    exit;
+}
+
+// Validate color format
+if (!preg_match('/^#[a-fA-F0-9]{6}$/', $backgroundColor) || !preg_match('/^#[a-fA-F0-9]{6}$/', $textColor)) {
+    echo json_encode(['success' => false, 'error' => 'Invalid color format. Please use hex colors (e.g., #667eea).']);
+    exit;
+}
+
+// Validate personality
+$validPersonalities = ['friendly', 'professional', 'casual', 'creative', 'technical', 'humorous'];
+if (!in_array($personality, $validPersonalities)) {
+    echo json_encode(['success' => false, 'error' => 'Invalid personality type.']);
+    exit;
+}
+
+// Generate unique project ID
+$projectId = 'ai_' . time() . '_' . uniqid() . '_' . substr(str_shuffle('abcdefghijklmnopqrstuvwxyz0123456789'), 0, 4);
+
+// Create personality prompts
+$personalityPrompts = [
+    'friendly' => "You are $aiName, a friendly and helpful AI assistant created by $developerName. You're warm, approachable, and always eager to help with a positive attitude.",
+    'professional' => "You are $aiName, a professional AI assistant developed by $developerName. You maintain a formal, business-like tone and provide precise, well-structured responses.",
+    'casual' => "You are $aiName, a laid-back AI assistant made by $developerName. You're casual, relaxed, and speak in a conversational, informal way.",
+    'creative' => "You are $aiName, a creative AI assistant built by $developerName. You're imaginative, artistic, and love to think outside the box with innovative ideas.",
+    'technical' => "You are $aiName, a technical AI assistant engineered by $developerName. You provide detailed, accurate technical information and prefer precise, analytical responses.",
+    'humorous' => "You are $aiName, a fun-loving AI assistant created by $developerName. You enjoy humor, jokes, and making conversations light and entertaining."
+];
+
+$systemPrompt = $personalityPrompts[$personality];
+
+// Create AI configuration
+$aiConfig = [
+    'project_id' => $projectId,
+    'ai_name' => $aiName,
+    'developer_name' => $developerName,
+    'country' => $country,
+    'background_color' => $backgroundColor,
+    'text_color' => $textColor,
+    'personality' => $personality,
+    'greeting' => $greeting,
+    'system_prompt' => $systemPrompt,
+    'created_at' => date('Y-m-d H:i:s'),
+    'is_active' => true,
+    'total_messages' => 0,
+    'last_used' => date('Y-m-d H:i:s')
+];
+
+try {
+    // Get the directory where this PHP file is located
+    $baseDir = dirname(__FILE__);
+    $aisDir = $baseDir . '/ais';
+    $logsDir = $baseDir . '/logs';
+    
+    // Create directories with proper permissions
+    if (!file_exists($aisDir)) {
+        if (!mkdir($aisDir, 0777, true)) {
+            throw new Exception('Failed to create ais directory. Check permissions.');
+        }
+        chmod($aisDir, 0777); // Ensure full permissions for KSWEB
+    }
+    
+    if (!file_exists($logsDir)) {
+        if (!mkdir($logsDir, 0777, true)) {
+            throw new Exception('Failed to create logs directory. Check permissions.');
+        }
+        chmod($logsDir, 0777); // Ensure full permissions for KSWEB
+    }
+    
+    // Save AI configuration as JSON file
+    $configFile = $aisDir . '/' . $projectId . '.json';
+    $jsonData = json_encode($aiConfig, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+    
+    if (file_put_contents($configFile, $jsonData, LOCK_EX) === false) {
+        throw new Exception('Failed to save AI configuration file: ' . $configFile);
+    }
+    
+    // Set file permissions
+    chmod($configFile, 0666);
+    
+    // Generate AI link
+    $protocol = isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http';
+    $host = $_SERVER['HTTP_HOST'];
+    $siteUrl = $protocol . '://' . $host;
+    $aiLink = $siteUrl . "/ai/" . $projectId;
+    
+    // Log activity
+    $logFile = $logsDir . '/activity.log';
+    $logEntry = date('Y-m-d H:i:s') . " - AI Created: $projectId by $developerName ($aiName) from IP: " . $_SERVER['REMOTE_ADDR'] . "\n";
+    file_put_contents($logFile, $logEntry, FILE_APPEND | LOCK_EX);
+    
+    // Verify the file was actually created
+    if (!file_exists($configFile)) {
+        throw new Exception('AI configuration file was not created successfully.');
+    }
+    
+    echo json_encode([
+        'success' => true,
+        'project_id' => $projectId,
+        'ai_link' => $aiLink,
+        'message' => 'AI created successfully! Your custom AI assistant is now live.',
+        'ai_name' => $aiName,
+        'developer_name' => $developerName,
+        'debug_info' => [
+            'config_file' => $configFile,
+            'file_exists' => file_exists($configFile),
+            'base_dir' => $baseDir,
+            'ais_dir' => $aisDir
+        ]
+    ]);
+    
+} catch(Exception $e) {
+    error_log("Error creating AI: " . $e->getMessage());
+    http_response_code(500);
+    echo json_encode([
+        'success' => false, 
+        'error' => 'Failed to create AI: ' . $e->getMessage(),
+        'debug_info' => [
+            'base_dir' => isset($baseDir) ? $baseDir : 'not set',
+            'ais_dir' => isset($aisDir) ? $aisDir : 'not set',
+            'ais_dir_exists' => isset($aisDir) ? file_exists($aisDir) : false,
+            'ais_dir_writable' => isset($aisDir) ? is_writable($aisDir) : false
+        ]
+    ]);
+}
+?>
